@@ -1,0 +1,112 @@
+---
+title: "Bearings Target Tracking"
+author: "Bassel MASRI - Guillaume FRANCHI"
+date: "11/16/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+WE SHOULD INTRODUCE THE PROJECT HERE.
+The aim of this project is to implement an approach to recover an estimation of the target's trajectory $x_{1:n}$ from the available corrupted observations $\theta_{1:n}^i$, $i=\{1,2\}$.
+
+# Part - 1 - Case of one sensor
+
+For this part, we consider that only one sensor works and its coordinates are $(s_x^1,s_y^1) = (-1.5,0.5)$ 
+
+## 1.a. Sampling data
+
+We will sample data $\theta_{1:n}^1$ according to the formula given below: 
+
+$$
+\theta_k^i = tan^-1(\frac{y_k-s_y^i}{x_k-s_x^i})+r_k \text{ with } r_k \sim N(0,\sigma^2)
+$$
+
+In order to do so, we first define the state space equations for the position and the velocity from the discrete Wiener velocity model (Nearly Constant Velocity model). The noise $q_k \sim N(0,Q)$ with $Q$ being the variance matrix defined.
+
+$$
+\begin{cases}
+x_k = x_{k-1} + \Delta \dot{x}_{k-1} + q_k \\
+y_k = y_{k-1} + \Delta \dot{y}_{k-1} + q_k \\
+\dot{x}_k = \dot{x}_{k-1} \\
+\dot{y}_k = \dot{y}_{k-1}
+\end{cases}
+$$
+
+The initial state to be considered is x$_1 = (0,0,1,0)^T$ which means that $x_0 = y_0 = \dot{y}_0 = 0$ and $\dot{x}_0 = 1$
+
+We can proceed to implementing the state space model using the parameters described : 
+
+```{r, warning=FALSE}
+rm(list=ls())
+library(MASS)
+
+#-- Setting parameters
+delta <- 0.01
+q_1 <- q_2 <- 0.1
+Q <- matrix(c((q_1*delta**3/3),0,(q_1*delta**2/2),0,
+              0,(q_2*delta**3/3),0,(q_2*delta**2/2), 
+              (q_1*delta**2/2),0,q_1*delta,0,
+              0,(q_2*delta**2/2),0, q_2*delta), nrow = 4, byrow = TRUE)
+
+#-- Define multivariate Gaussian noise of the state space model
+k <- 500
+q_k <- t(mvrnorm(k, rep(0,4), sqrt(Q)))
+x <- x_dot <- y <- y_dot <- rep(0,k)
+
+for (i in 1:k){
+  
+  #-- Initial values
+  if (i==1){
+    x[i] <- 0
+    y[i] <- 0
+    y_dot[i] <- 0
+    x_dot[i] <- 1
+  }
+  
+  #-- Implementing state space model and adding noise
+  #-- note we add each element of the noise matrix to
+  #-- its corresponding value.
+  else {
+    x[i] <- x[i-1] + delta*x_dot[i-1] + q_k[1,i]
+    y[i] <- y[i-1] + delta*y_dot[i-1] + q_k[2,i]
+    x_dot[i] <- x_dot[i-1] + q_k[3,i]
+    y_dot[i] <- y_dot[i-1] + q_k[4,i]
+  }
+}
+```
+
+
+```{r, fig.align = 'center'}
+#-- plot the generated trajectory x,y 
+plot(x,y, main = "Generated data for trajectory",
+     xlab = "Position x",
+     ylab = "Position y")
+```
+
+```{r, fig.align = 'center'}
+#-- plot the generated velocities 
+plot(x_dot,y_dot, main = "Generated data for velocity",
+     xlab = "velocity on x",
+     ylab = "velocity on y")
+```
+
+Now that we generated noisy data for trajectory and velocity, we can sample the data $\theta_{1:n}^1$ and visualize them with a plot.
+
+```{r, fig.align = 'center'}
+theta_1 <- rep(0,k)
+sigma <- 0.05
+
+for (i in 1:k){
+  theta_1[i] <- atan((y[i]-0.5)/(x[i]+1.5)) + rnorm(1, mean = 0, sd = sqrt(sigma))
+}
+
+plot(theta_1, main = "Sampled data for theta", ylab = "Value of theta")
+```
+
