@@ -1,2 +1,2 @@
 # Hidden-Markov-Models
-Bearings target tracking
+Bearings target tracking problem using extended Kalman filter on a hidden markov model
