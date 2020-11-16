@@ -107,6 +107,7 @@ for (i in 1:k){
   theta_1[i] <- atan((y[i]-0.5)/(x[i]+1.5)) + rnorm(1, mean = 0, sd = sqrt(sigma))
 }
 
-plot(theta_1, main = "Sampled data for theta", ylab = "Value of theta")
+plot(theta_1, main = "Sampled data for theta", 
+     ylab = "Value of theta")
 ```
 
