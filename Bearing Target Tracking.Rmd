@@ -1,7 +1,7 @@
 ---
 title: "Bearings Target Tracking"
 author: "Bassel MASRI - Guillaume FRANCHI"
-date: "11/16/2020"
+date: "11/17/2020"
 output:
   pdf_document: default
   html_document: default
@@ -11,16 +11,13 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Introduction
+# INTRODUCTION
 
-WE SHOULD INTRODUCE THE PROJECT HERE.
 The aim of this project is to implement an approach to recover an estimation of the target's trajectory $x_{1:n}$ from the available corrupted observations $\theta_{1:n}^i$, $i=\{1,2\}$.
 
-# Part - 1 - Case of one sensor
+# SAMPLING DATA IN THE CASE OF ONE SENSOR
 
 For this part, we consider that only one sensor works and its coordinates are $(s_x^1,s_y^1) = (-1.5,0.5)$ 
-
-## 1.a. Sampling data
 
 We will sample data $\theta_{1:n}^1$ according to the formula given below: 
 
@@ -32,11 +29,22 @@ In order to do so, we first define the state space equations for the position an
 
 $$
 \begin{cases}
-x_k = x_{k-1} + \Delta \dot{x}_{k-1} + q_k \\
-y_k = y_{k-1} + \Delta \dot{y}_{k-1} + q_k \\
+x_k = x_{k-1} + \Delta \dot{x}_{k-1} \\
+y_k = y_{k-1} + \Delta \dot{y}_{k-1} \\
 \dot{x}_k = \dot{x}_{k-1} \\
 \dot{y}_k = \dot{y}_{k-1}
 \end{cases}
++ q_k \sim N\left[\left(\begin{array}{c}
+0\\
+0\\
+0\\
+0
+\end{array}\right),\left(\begin{array}{cccc}
+q_1^c \frac{\Delta^3}{3} & 0 & q_1^c \frac{\Delta^2}{2} & 0\\
+0 & q_2^c \frac{\Delta^3}{3} & 0 & q_2^c \frac{\Delta^2}{2}\\
+q_1^c \frac{\Delta^2}{2} & 0 & q_1^c \Delta & 0 \\
+0 & q_2^c \frac{\Delta^2}{2} & 0 & q_2^c \Delta
+\end{array}\right)\right]
 $$
 
 The initial state to be considered is x$_1 = (0,0,1,0)^T$ which means that $x_0 = y_0 = \dot{y}_0 = 0$ and $\dot{x}_0 = 1$
@@ -90,13 +98,6 @@ plot(x,y, main = "Generated data for trajectory",
      ylab = "Position y")
 ```
 
-```{r, fig.align = 'center'}
-#-- plot the generated velocities 
-plot(x_dot,y_dot, main = "Generated data for velocity",
-     xlab = "velocity on x",
-     ylab = "velocity on y")
-```
-
 Now that we generated noisy data for trajectory and velocity, we can sample the data $\theta_{1:n}^1$ and visualize them with a plot.
 
 ```{r, fig.align = 'center'}
@@ -110,3 +111,161 @@ for (i in 1:k){
 plot(theta_1, main = "Sampled data for theta", ylab = "Value of theta")
 ```
 
+
+# FUNCTIONS FOR LINEARIZATION
+
+```{r}
+##----------Function to compute C_k
+
+C_k <-function(x,y,sx,sy){
+  res<-rep(0,4)
+  res[1]<- (sy-y)/((x-sx)^2+(y-sy)^2)
+  res[2]<-(x-sx)/((x-sx)^2+(y-sy)^2)
+  return(res)
+}
+
+##----------Function to compute D_k
+
+D_k <-function(x,y,sx,sy){
+  f<-atan((y-sy)/(x-sx))
+  res<-f-x*(sy-y)/((x-sx)^2+(y-sy)^2)-
+    y*(x-sx)/((x-sx)^2+(y-sy)^2)
+  return(res)
+}
+```
+
+# INITIALIZATION
+
+```{r}
+##-----------Initialization
+A<-matrix(c(1,0,0,0,0,1,0,0,delta,0,1,0,0,delta,0,1),nrow = 4)
+sx1<-(-1.5)
+sy1<-0.5
+X.HAT<-matrix(rep(NA,4*k),nrow=4)
+P<-0.01*diag(1,4)
+X.HAT[,1]<-mvrnorm(1,c(0,0,1,0),P)
+```
+
+# EXTENDED KALMAN FILTER
+
+```{r}
+for (t in 2:k){
+
+  ##---------------Prediction Step
+  Xmin<-A%*%X.HAT[,(t-1)]
+  Pmin<-A%*%P%*%t(A)+Q
+  C<-t(as.matrix(C_k(Xmin[1],Xmin[2],sx1,sy1)))
+  D<-D_k(Xmin[1],Xmin[2],sx1,sy1)
+  thetamin<-as.numeric(C%*%Xmin+D)
+
+  ##--------------Correction Step
+  K<-Pmin%*%t(C)%*%solve((C%*%Pmin%*%t(C)+sigma^2))
+  X.HAT[,t]<-Xmin+K*(theta_1[t]-thetamin)
+  P<-(diag(1,4)-K%*%C)%*%Pmin
+}
+```
+
+# PLOTTING THE TRAJECTORIES
+
+```{r}
+x.hat<-X.HAT[1,]
+y.hat<-X.HAT[2,]
+
+df<-cbind.data.frame(Time=(1:k),x,y,x.hat,y.hat)
+```
+
+```{r}
+library(ggplot2)
+ggplot(data = df)+geom_point(aes(x=x,y=y,color="Real"))+
+  geom_point(aes(x=x.hat,y=y.hat,color="Estimate"))+
+  scale_color_manual(values=c("Real"="#E45C56","Estimate"="#566DE4"),
+                     labels=c("Estimated trajectory","Real Trajectory")) + theme_bw()
+```
+
+# FUNCTIONS FOR LINEARIZATION // 2 SENSORS
+
+```{r}
+J_k2<-function(x,y,sx1,sy1,sx2,sy2){
+  ##---------------------------------------Jacobian Matrix
+  res<-matrix(rep(NA,4),nrow = 2)
+  res[1,1]<-(sy1-y)/((x-sx1)^2+(y-sx1)^2)
+  res[1,2]<-(x-sx1)/((x-sx1)^2+(y-sx1)^2)
+  res[2,1]<-(sy2-y)/((x-sx2)^2+(y-sx2)^2)
+  res[2,2]<-(x-sx2)/((x-sx2)^2+(y-sx2)^2)
+  return(res)
+}
+
+C_k2<-function(x,y,sx1,sy1,sx2,sy2){
+  ##-----------------------------------------Linear Function in the model
+  res<-matrix(rep(0,8),nrow=2)
+  res[,(1:2)]<-J_k2(x,y,sx1,sy1,sx2,sy2)
+  return(res)
+}
+
+D_k2<-function(x,y,sx1,sy1,sx2,sy2){
+  ##----------------------------------------Constant Part in the model
+  f<-c(atan((y-sy1)/(x-sx1)),atan((y-sy2)/(x-sx2)))
+  res<-f-J_k2(x,y,sx1,sy1,sx2,sy2)%*%as.matrix(c(x,y))
+  return(res)
+}
+```
+
+# NEW SENSORS DATA 
+
+```{r}
+sy2<-sx2<--1
+R<-matrix(rep(NA,2*k),nrow = 2)
+
+for (i in 1:k){
+  R[,i]<-rnorm(2,0,sigma)
+}
+
+theta_2<--matrix(rep(NA,2*k),nrow = 2)
+
+for (i in 1:k){
+  theta_2[1,i]<-atan((y[i]-sy1)/(x[i]-sx1))
+  theta_2[2,i]<-atan((y[i]-sy2)/(x[i]-sx2))
+}
+
+theta_2<-theta_2+R
+```
+
+
+# EXTENDED KALMAN FILTER
+
+```{r}
+
+##------------------Initialization
+
+X.HAT<-matrix(rep(NA,4*k),nrow=4)
+X.HAT[,1]<-mvrnorm(1,c(0,0,1,0),P)
+
+for (t in 2:k){
+
+  ##---------------Prediction Step
+  Xmin<-A%*%X.HAT[,(t-1)]
+  Pmin<-A%*%P%*%t(A)+Q
+  C<-C_k2(Xmin[1],Xmin[2],sx1,sy1,sx2,sy2)
+  D<-D_k2(Xmin[1],Xmin[2],sx1,sy1,sx2,sy2)
+  thetamin<-C%*%Xmin+D
+  ##--------------Corrction Step
+  K<-Pmin%*%t(C)%*%solve((C%*%Pmin%*%t(C)+sigma^2*diag(1,2)))
+  X.HAT[,t]<-Xmin+K%*%(matrix(theta_2[,t])-thetamin)
+  P<-(diag(1,4)-K%*%C)%*%Pmin
+}
+
+```
+
+# PLOTTING THE TRAJECTORIES
+
+```{r}
+x.hat<-X.HAT[1,]
+y.hat<-X.HAT[2,]
+
+df<-cbind.data.frame(Time=(1:k),x,y,x.hat,y.hat)
+
+ggplot(data = df)+geom_point(aes(x=x,y=y,color="Real"))+
+  geom_point(aes(x=x.hat,y=y.hat,color="Estimate"))+
+  scale_color_manual(values=c("Real"="#E45C56","Estimate"="#566DE4"),
+                     labels=c("Estimated trajectory","Real Trajectory")) + theme_bw()
+```
